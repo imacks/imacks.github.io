@@ -24,12 +24,10 @@ OpenWRT stock configuration
 ---------------------------
 Say your router has 5 physical ports. We'll then see 6 plugs on `network > switch`:
 
-|-----------|-------|--------|--------|--------|--------|-------|
 | VLAN ID   | CPU   | LAN1   | LAN2   | LAN3   | LAN4   | WAN   |
 |-----------|-------|--------|--------|--------|--------|-------|
 | 1         | tag   | untag  | untag  | untag  | untag  | off   |
 | 2         | tag   | off    | off    | off    | off    | off   |
-|-----------|-------|--------|--------|--------|--------|-------|
 
 OpenWRT uses the switch configuration to associate physical ports on the router to VLANs. In most cases, it 
 associate VLAN 2 to your WAN port, and VLAN 1 to any of ports 1-4.
@@ -50,7 +48,6 @@ mirroring options.
 
 We are going to configure this switch like this:
 
-|-----------|-------|--------|--------|--------|--------|-------|
 | VLAN ID   | CPU   | LAN1   | LAN2   | LAN3   | LAN4   | WAN   |
 |-----------|-------|--------|--------|--------|--------|-------|
 | 1         | tag   | off    | off    | off    | off    | off   |
@@ -59,7 +56,6 @@ We are going to configure this switch like this:
 | 20        | tag   | off    | off    | off    | off    | tag   |
 | 30        | tag   | off    | off    | off    | untag  | tag   |
 | 50        | tag   | off    | off    | untag  | off    | tag   |
-|-----------|-------|--------|--------|--------|--------|-------|
 
 Our first two lines here essentially disables the original router design. That means interface WAN/WAN6 and 
 LAN are now just dummies.
