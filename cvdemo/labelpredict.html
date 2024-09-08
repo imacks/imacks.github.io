@@ -1,0 +1,220 @@
+<html>
+<head>
+    <title>Image labeling demo</title>
+</head>
+<body>
+    <p id="instruction">Click on button below to upload an image.</p>
+    <form id="image_upload">
+        <label for="file">File</label>
+        <input id="file" name="file" type="file" />
+        <button id="upload_button">Upload</button>
+    </form>
+    <p id="image_meta"></p>
+    <p id="image_labels"></p>
+    <div id="image_wrapper">
+        <canvas id="img_overlay" style="border: 1px solid rgb(255, 0, 0);"></canvas>
+    </div>
+    <p id="dbgwin" style="display:none"></p>
+    <script type="text/javascript">
+        function getCredential() {
+            if (document.cookie && document.cookie.length == 0) {
+                alert("set credentials first");
+                return;
+            }
+
+            var cookies = document.cookie.split('; ');
+            var cred = {};
+            for (var i = 0; i < cookies.length; i++) {
+                if (cookies[i].startsWith('apiuserid=')) {
+                    cred.userid = cookies[i].substring('apiuserid='.length);
+                    continue;
+                }
+                if (cookies[i].startsWith('apiusersecret=')) {
+                    cred.secret = cookies[i].substring('apiusersecret='.length);
+                    continue;
+                }
+                if (cookies[i].startsWith('apiendpoint=')) {
+                    cred.endpoint = cookies[i].substring('apiendpoint='.length);
+                    continue;
+                }
+            }
+
+            return cred;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            function resetUploadButton() {
+                var uploadButton = document.getElementById('upload_button');
+                uploadButton.innerHTML = 'Upload';
+                uploadButton.disabled = false;
+            }
+
+            function setInstructionText(s, dbgtext) {
+                var p = document.getElementById('instruction');
+                p.innerHTML = s;
+
+                var dbgwin = document.getElementById('dbgwin');
+                if (dbgtext) {
+                    dbgwin.style.display = 'block';
+                    dbgwin.innerHTML = dbgtext;
+                } else {
+                    dbgwin.style.display = 'none';
+                    dbgwin.innerHTML = '';
+                }
+            }
+
+            function renderImageMetadata(titlePrefix, quality, colors) {
+                var s = '';
+                if (quality) {
+                    s += '<h3>' + titlePrefix + 'Quality</h3><br>';
+                    s += '<b>brightness</b> ' + quality.brightness + '<br>'
+                    s += '<b>contrast</b> ' + quality.contrast + '<br>'
+                    s += '<b>sharpness</b> ' + quality.sharpness + '<br>'
+                    s += '<br>'
+                }
+                if (colors) {
+                    s += '<h3>' + titlePrefix + 'Dominant Colors</h3><br>';
+                    for (var i = 0; i < colors.length; i++) {
+                        s += '#' + colors[i].hex + ' (' + colors[i].percent + '%); Family: ' + colors[i].family + '<br>'
+                    }
+                    s += '<br>'
+                }
+
+                return s;
+            }
+
+            function printImageLabels(labels) {
+                var canvas = document.getElementById('img_overlay');
+                var canvasCtx = canvas.getContext('2d');
+                canvasCtx.strokeStyle = 'green';
+                canvasCtx.lineWidth = 1;
+                var s = '';
+
+                for (var i = 0; i < labels.length; i++) {
+                    if (!labels[i].predictions || labels[i].predictions.length === 0) {
+                        s += '<b>' + labels[i].name + '</b> (' + labels[i].confidence + ')<br>';
+                        continue;
+                    } else {
+                        s += '<b>' + labels[i].name + ' [x' + labels[i].predictions.length + ']</b> (' + labels[i].confidence + ')<br>';
+                    }
+
+                    for (var j = 0; j < labels[i].predictions.length; j++) {
+                        var prediction = labels[i].predictions[j];
+                        var w = prediction.box.width * canvas.width,
+                            h = prediction.box.height * canvas.height,
+                            x = prediction.box.left * canvas.width,
+                            y = prediction.box.top * canvas.height;
+                        canvasCtx.strokeRect(x, y, w, h);
+                        canvasCtx.fillText(labels[i].name + '(' + Math.round(prediction.confidence) + '%)',
+                            x + w,
+                            y);
+                    }
+                }
+
+                var el = document.getElementById('image_labels');
+                el.innerHTML = s;
+            }
+
+            function handleLabelPredictImageResponse(e) {
+                var response = e.currentTarget;
+                if (response.status != 200) {
+                    setInstructionText('Server responded with error: ' + response.statusText, response.responseText);
+                    resetUploadButton();
+                    return;
+                }
+
+                setInstructionText('Got result!', response.responseText);
+                var form = document.getElementById('image_upload');
+                form.style.display = 'none';
+
+                var data = JSON.parse(response.responseText);
+
+                if (data.feature) {
+                    var metaWrapper = document.getElementById('image_meta');
+
+                    var s = renderImageMetadata('', data.feature.quality, data.feature.colors);
+                    s += renderImageMetadata('Background ', data.feature.backgroundQuality, data.feature.backgroundColors);
+                    s += renderImageMetadata('Foreground ', data.feature.foregroundQuality, data.feature.foregroundColors);
+                    metaWrapper.innerHTML = s;
+                }
+
+                if (data.label)
+                    printImageLabels(data.label);
+
+                console.log(response);
+            }
+
+            function sendLabelPredictImageRequest(octetData) {
+                var cred = getCredential()
+                if (!cred)
+                    return;
+                var credStr = cred.userid + ':' + cred.secret;
+
+                // trim off prefix
+                var octetCutoff = ';base64,';
+                var i = octetData.indexOf(octetCutoff);
+                if (i == -1) {
+                    console.log('BUG: unexpected error parsing string b64Octet');
+                    return;
+                }
+                var b64Data = octetData.substring(i + octetCutoff.length);
+
+                // these are the default values
+                var reqbody = {
+                    imageBase64: b64Data,
+                    maxLabel: 1000,
+                    maxDetectDominantColor: 5,
+                    minConfidence: 55,
+                    detectImageFeature: true
+                };
+
+                var imgWrapper = document.getElementById('image_wrapper');
+                var imgOverlay = document.getElementById('img_overlay');
+                imgWrapper.style.backgroundImage = 'url(' + octetData + ')';
+                var img = new Image();
+                img.onload = function() {
+                    imgWrapper.style.width = this.width;
+                    imgWrapper.style.height = this.height;
+                    // setting canvas size in css makes it blurry
+                    imgOverlay.width = this.width;
+                    imgOverlay.height = this.height;
+                }
+                img.src = octetData;
+
+                var xhr = new XMLHttpRequest();
+                xhr.timeout = 10*1000;
+                xhr.addEventListener('timeout', function(e) {
+                    setInstructionText('Request timeout');
+                    resetUploadButton();
+                });
+                xhr.addEventListener('error', function(e) {
+                    setInstructionText('An error has occured sending data to server');
+                    console.log(e);
+                    resetUploadButton();
+                });
+                xhr.addEventListener("load", handleLabelPredictImageResponse);
+                xhr.open('POST', cred.endpoint + '/api/v1/image/label?accesskey=' + credStr, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+
+                var uploadButton = document.getElementById('upload_button');
+                uploadButton.innerHTML = 'Sending...';
+                uploadButton.disabled = true;
+                xhr.send(JSON.stringify(reqbody));
+            }
+
+            document.getElementById('image_upload').addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                var form = e.currentTarget;
+                var fileInput = form.children[1];
+
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    sendLabelPredictImageRequest(e.target.result);
+                }
+                reader.readAsDataURL(fileInput.files[0]);
+            });
+        });
+    </script>
+</body>
+</html>

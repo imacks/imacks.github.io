@@ -1,0 +1,203 @@
+<html>
+<head>
+    <title>Image text recognition demo</title>
+</head>
+<body>
+    <p id="instruction">Click on button below to upload an image.</p>
+    <form id="image_upload">
+        <label for="file">File</label>
+        <input id="file" name="file" type="file" />
+        <button id="upload_button">Upload</button>
+    </form>
+    <p id="image_meta"></p>
+    <div id="image_wrapper">
+        <canvas id="img_overlay" style="border: 1px solid rgb(255, 0, 0);"></canvas>
+    </div>
+    <p id="dbgwin" style="display:none"></p>
+    <script type="text/javascript">
+        function getCredential() {
+            if (document.cookie && document.cookie.length == 0) {
+                alert("set credentials first");
+                return;
+            }
+
+            var cookies = document.cookie.split('; ');
+            var cred = {};
+            for (var i = 0; i < cookies.length; i++) {
+                if (cookies[i].startsWith('apiuserid=')) {
+                    cred.userid = cookies[i].substring('apiuserid='.length);
+                    continue;
+                }
+                if (cookies[i].startsWith('apiusersecret=')) {
+                    cred.secret = cookies[i].substring('apiusersecret='.length);
+                    continue;
+                }
+                if (cookies[i].startsWith('apiendpoint=')) {
+                    cred.endpoint = cookies[i].substring('apiendpoint='.length);
+                    continue;
+                }
+            }
+
+            return cred;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            function resetUploadButton() {
+                var uploadButton = document.getElementById('upload_button');
+                uploadButton.innerHTML = 'Upload';
+                uploadButton.disabled = false;
+            }
+
+            function setInstructionText(s, dbgtext) {
+                var p = document.getElementById('instruction');
+                p.innerHTML = s;
+
+                var dbgwin = document.getElementById('dbgwin');
+                if (dbgtext) {
+                    dbgwin.style.display = 'block';
+                    dbgwin.innerHTML = dbgtext;
+                } else {
+                    dbgwin.style.display = 'none';
+                    dbgwin.innerHTML = '';
+                }
+            }
+
+            function printImageTexts(texts) {
+                var s = 'Detected <b>' + texts.length + '</b> text bounds.<br><br>';
+
+                var canvas = document.getElementById('img_overlay');
+                var canvasCtx = canvas.getContext('2d');
+                canvasCtx.strokeStyle = 'green';
+                canvasCtx.lineWidth = 1;
+
+                for (var i = 0; i < texts.length; i++) {
+                    var prediction = texts[i];
+
+                    s += '<b>' + prediction.text + '</b> (' + prediction.confidence + '%)<br>';
+                    if (prediction.type === 'WORD' && prediction.hasOwnProperty('parentID')) {
+                        for (var j = 0; j < texts.length; j++) {
+                            if (texts[j].id == prediction.parentID) {
+                                s += '- sub-segment of: ' + texts[j].text + '<br>';
+                                break;
+                            }
+                        }
+                    }
+
+                    var w = prediction.region.box.width * canvas.width,
+                        h = prediction.region.box.height * canvas.height,
+                        x = prediction.region.box.left * canvas.width,
+                        y = prediction.region.box.top * canvas.height;
+                    canvasCtx.strokeRect(x, y, w, h);
+                    canvasCtx.fillText(prediction.text, x + w, y);
+
+                    canvasCtx.strokeStyle = 'red';
+                    canvasCtx.beginPath();
+                    for (var j = 0; j < prediction.region.polygon.length; j++) {
+                        var x = prediction.region.polygon[j].x * canvas.width, 
+                            y = prediction.region.polygon[j].y * canvas.height;
+
+                        if (j == 0)
+                            canvasCtx.moveTo(x, y);
+                        else
+                            canvasCtx.lineTo(x, y);
+                    }
+                    canvasCtx.closePath();
+                    canvasCtx.stroke();
+                    canvasCtx.strokeStyle = 'green';
+                }
+
+                var el = document.getElementById('image_meta');
+                el.innerHTML = s;
+            }
+
+            function handleTextPredictImageResponse(e) {
+                var response = e.currentTarget;
+                if (response.status != 200) {
+                    setInstructionText('Server responded with error: ' + response.statusText, response.responseText);
+                    resetUploadButton();
+                    return;
+                }
+
+                setInstructionText('Got result!', response.responseText);
+                var form = document.getElementById('image_upload');
+                form.style.display = 'none';
+
+                var data = JSON.parse(response.responseText);
+                printImageTexts(data.texts);
+                console.log(response);
+            }
+
+            function sendTextPredictImageRequest(octetData) {
+                var cred = getCredential()
+                if (!cred)
+                    return;
+                var credStr = cred.userid + ':' + cred.secret;
+
+                // trim off prefix
+                var octetCutoff = ';base64,';
+                var i = octetData.indexOf(octetCutoff);
+                if (i == -1) {
+                    console.log('BUG: unexpected error parsing string b64Octet');
+                    return;
+                }
+                var b64Data = octetData.substring(i + octetCutoff.length);
+
+                // these are the default values
+                var reqbody = {
+                    imageBase64: b64Data,
+                    minConfidence: 55
+                    //minBoxWidth: 0,
+                    //minBoxHeight: 0,
+                    //regions: []
+                };
+
+                var imgWrapper = document.getElementById('image_wrapper');
+                var imgOverlay = document.getElementById('img_overlay');
+                imgWrapper.style.backgroundImage = 'url(' + octetData + ')';
+                var img = new Image();
+                img.onload = function() {
+                    imgWrapper.style.width = this.width;
+                    imgWrapper.style.height = this.height;
+                    // setting canvas size in css makes it blurry
+                    imgOverlay.width = this.width;
+                    imgOverlay.height = this.height;
+                }
+                img.src = octetData;
+
+                var xhr = new XMLHttpRequest();
+                xhr.timeout = 10*1000;
+                xhr.addEventListener('timeout', function(e) {
+                    setInstructionText('Request timeout');
+                    resetUploadButton();
+                });
+                xhr.addEventListener('error', function(e) {
+                    setInstructionText('An error has occured sending data to server');
+                    console.log(e);
+                    resetUploadButton();
+                });
+                xhr.addEventListener("load", handleTextPredictImageResponse);
+                xhr.open('POST', cred.endpoint + '/api/v1/image/text?accesskey=' + credStr, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+
+                var uploadButton = document.getElementById('upload_button');
+                uploadButton.innerHTML = 'Sending...';
+                uploadButton.disabled = true;
+                xhr.send(JSON.stringify(reqbody));
+            }
+
+            document.getElementById('image_upload').addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                var form = e.currentTarget;
+                var fileInput = form.children[1];
+
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    sendTextPredictImageRequest(e.target.result);
+                }
+                reader.readAsDataURL(fileInput.files[0]);
+            });
+        });
+    </script>
+</body>
+</html>

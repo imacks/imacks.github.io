@@ -1,0 +1,328 @@
+<html>
+<head>
+    <title>Faces recognition demo</title>
+</head>
+<body>
+    <p id="instruction">Click on button below to upload an image.</p>
+    <form id="image_upload">
+        <label for="file">File</label>
+        <input id="file" name="file" type="file" />
+        <button id="upload_button">Upload</button>
+    </form>
+    <p id="image_meta"></p>
+    <div id="image_wrapper">
+        <canvas id="img_overlay" style="border: 1px solid rgb(255, 0, 0);"></canvas>
+    </div>
+    <p id="dbgwin" style="display:none"></p>
+    <script type="text/javascript">
+        function getCredential() {
+            if (document.cookie && document.cookie.length == 0) {
+                alert("set credentials first");
+                return;
+            }
+
+            var cookies = document.cookie.split('; ');
+            var cred = {};
+            for (var i = 0; i < cookies.length; i++) {
+                if (cookies[i].startsWith('apiuserid=')) {
+                    cred.userid = cookies[i].substring('apiuserid='.length);
+                    continue;
+                }
+                if (cookies[i].startsWith('apiusersecret=')) {
+                    cred.secret = cookies[i].substring('apiusersecret='.length);
+                    continue;
+                }
+                if (cookies[i].startsWith('apiendpoint=')) {
+                    cred.endpoint = cookies[i].substring('apiendpoint='.length);
+                    continue;
+                }
+            }
+
+            return cred;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            function resetUploadButton() {
+                var uploadButton = document.getElementById('upload_button');
+                uploadButton.innerHTML = 'Upload';
+                uploadButton.disabled = false;
+            }
+
+            function setInstructionText(s, dbgtext) {
+                var p = document.getElementById('instruction');
+                p.innerHTML = s;
+
+                var dbgwin = document.getElementById('dbgwin');
+                if (dbgtext) {
+                    dbgwin.style.display = 'block';
+                    dbgwin.innerHTML = dbgtext;
+                } else {
+                    dbgwin.style.display = 'none';
+                    dbgwin.innerHTML = '';
+                }
+            }
+
+            function renderFaceLandmarks(landmarks, canvas, ctx) {
+                for (var i = 0; i < landmarks.length; i++) {
+                    var fillColor = 'blue';
+                    switch (landmarks[i].type) {
+                        case "EYE_LEFT":
+                            fillColor = '#F0F8FF';
+                            break;
+                        case "EYE_RIGHT":
+                            fillColor = '#FAEBD7';
+                            break;
+                        case "MOUTH_LEFT":
+                            fillColor = '#00FFFF';
+                            break;
+                        case "MOUTH_RIGHT":
+                            fillColor = '#000000';
+                            break;
+                        case "NOSE":
+                            fillColor = '#0000FF';
+                            break;
+                        case "LEFT_EYEBROW_LEFT":
+                            fillColor = '#8A2BE2';
+                            break;
+                        case "LEFT_EYEBROW_RIGHT":
+                            fillColor = '#A52A2A';
+                            break;
+                        case "LEFT_EYEBROW_UP":
+                            fillColor = '#DEB887';
+                            break;
+                        case "RIGHT_EYEBROW_LEFT":
+                            fillColor = '#5F9EA0';
+                            break;
+                        case "RIGHT_EYEBROW_RIGHT":
+                            fillColor = '#7FFF00';
+                            break;
+                        case "RIGHT_EYEBROW_UP":
+                            fillColor = '#D2691E';
+                            break;
+                        case "LEFT_EYE_LEFT":
+                            fillColor = '#6495ED';
+                            break;
+                        case "LEFT_EYE_RIGHT":
+                            fillColor = '#00008B';
+                            break;
+                        case "LEFT_EYE_UP":
+                            fillColor = '#B8860B';
+                            break;
+                        case "LEFT_EYE_DOWN":
+                            fillColor = '#A9A9A9';
+                            break;
+                        case "RIGHT_EYE_LEFT":
+                            fillColor = '#006400';
+                            break;
+                        case "RIGHT_EYE_RIGHT":
+                            fillColor = '#BDB76B';
+                            break;
+                        case "RIGHT_EYE_UP":
+                            fillColor = '#8B008B';
+                            break;
+                        case "RIGHT_EYE_DOWN":
+                            fillColor = '#E9967A';
+                            break;
+                        case "NOSE_LEFT":
+                            fillColor = '#8FBC8F';
+                            break;
+                        case "NOSE_RIGHT":
+                            fillColor = '#FF1493';
+                            break;
+                        case "MOUTH_UP":
+                            fillColor = '#00BFFF';
+                            break;
+                        case "MOUTH_DOWN":
+                            fillColor = '#FFD700';
+                            break;
+                        case "LEFT_PUPIL":
+                            fillColor = '#FF69B4';
+                            break;
+                        case "RIGHT_PUPIL":
+                            fillColor = '#ADD8E6';
+                            break;
+                        case "UPPER_JAWLINE_LEFT":
+                            fillColor = '#90EE90';
+                            break;
+                        case "MID_JAWLINE_LEFT":
+                            fillColor = '#FFB6C1';
+                            break;
+                        case "CHIN_BOTTOM":
+                            fillColor = '#32CD32';
+                            break;
+                        case "MID_JAWLINE_RIGHT":
+                            fillColor = '#9370DB';
+                            break;
+                        case "UPPER_JAWLINE_RIGHT":
+                            fillColor = '#FF4500';
+                            break;
+                        default:
+                            console.log('unexpected landmark type ' + landmarks[i].type);
+                    }
+                    ctx.fillStyle = fillColor;
+
+                    x = landmarks[i].x * canvas.width;
+                    y = landmarks[i].y * canvas.height;
+                    ctx.fillRect(x-2, y-2, 4, 4);
+                }
+                ctx.fillStyle = 'blue';
+            }
+
+            function printReport(faces) {
+                var s = 'Detected <b>' + faces.length + '</b> faces.<br><br>';
+
+                var canvas = document.getElementById('img_overlay');
+                var canvasCtx = canvas.getContext('2d');
+                canvasCtx.strokeStyle = 'green';
+                canvasCtx.fillStyle = 'blue';
+                canvasCtx.lineWidth = 1;
+
+                for (var i = 0; i < faces.length; i++) {
+                    var prediction = faces[i];
+
+                    var w = prediction.box.width * canvas.width,
+                        h = prediction.box.height * canvas.height,
+                        x = prediction.box.left * canvas.width,
+                        y = prediction.box.top * canvas.height;
+                    canvasCtx.strokeRect(x, y, w, h);
+                    canvasCtx.fillText('#' + i + ' (' + Math.round(prediction.confidence) + ')%', x + w, y);
+
+                    if (prediction.landmark && prediction.landmark.length > 0) {
+                        renderFaceLandmarks(prediction.landmark, canvas, canvasCtx);
+                    }
+
+                    s += '<b>#' + i + '</b> properties:<br>'
+
+                    if (prediction.hasOwnProperty('age'))
+                        s += '- age: ' + prediction.age.lowerBound + ' to ' + prediction.age.upperBound + '<br>';
+                    if (prediction.hasOwnProperty('gender'))
+                        s += '- gender: ' + prediction.gender.gender + ' (' + Math.round(prediction.gender.confidence) + '%)<br>';
+                    if (prediction.hasOwnProperty('emotion')) {
+                        var emos = [];
+                        for (var j = 0; j < prediction.emotion.length; j++) {
+                            emos.push(prediction.emotion[j].emotion + ' (' + Math.round(prediction.emotion[j].confidence) + '%)');
+                        }
+                        s += '- emotions: ' + emos.join(' | ') + '<br>';
+                    }
+                    if (prediction.hasOwnProperty('pose'))
+                        s += '- pose (Pitch, Roll, Yaw): ' + prediction.pose.pitch + ', ' + prediction.pose.roll + ', ' + prediction.pose.yaw + '<br>';
+                    if (prediction.hasOwnProperty('eyeDirection'))
+                        s += '- eye direction (Pitch, Yaw): ' + prediction.eyeDirection.pitch + ', ' + prediction.eyeDirection.yaw + ' (' + Math.round(prediction.eyeDirection.confidence) + '%)<br>';
+
+                    var detected = [];
+                    if (prediction.beard && prediction.beard.detected)
+                        detected.push('beard');
+                    if (prediction.mustache && prediction.mustache.detected)
+                        detected.push('mustache');
+                    if (prediction.eyeClose && prediction.eyeClose.detected)
+                        detected.push('eyes closed');
+                    if (prediction.glasses && prediction.glasses.detected)
+                        detected.push('glasses');
+                    if (prediction.sunglasses && prediction.sunglasses.detected)
+                        detected.push('sunglasses');
+                    if (prediction.mouthOpen && prediction.mouthOpen.detected)
+                        detected.push('mouth open');
+                    if (prediction.occlusion && prediction.occlusion.detected)
+                        detected.push('occlusion');
+                    if (prediction.smile && prediction.smile.detected)
+                        detected.push('smiling');
+
+                    if (detected.length > 0) {
+                        s += '- features: ' + detected.join(' | ') + '<br>';
+                    }
+
+                    s += '<br><br>'
+                }
+
+                var el = document.getElementById('image_meta');
+                el.innerHTML = s;
+            }
+
+            function handleFacePredictResponse(e) {
+                var response = e.currentTarget;
+                if (response.status != 200) {
+                    setInstructionText('Server responded with error: ' + response.statusText, response.responseText);
+                    resetUploadButton();
+                    return;
+                }
+
+                setInstructionText('Got result!', response.responseText);
+                var form = document.getElementById('image_upload');
+                form.style.display = 'none';
+
+                var data = JSON.parse(response.responseText);
+                printReport(data.faces);
+                console.log(response);
+            }
+
+            function sendFacePredictRequest(octetData) {
+                var cred = getCredential()
+                if (!cred)
+                    return;
+                var credStr = cred.userid + ':' + cred.secret;
+
+                // trim off prefix
+                var octetCutoff = ';base64,';
+                var i = octetData.indexOf(octetCutoff);
+                if (i == -1) {
+                    console.log('BUG: unexpected error parsing string b64Octet');
+                    return;
+                }
+                var b64Data = octetData.substring(i + octetCutoff.length);
+
+                // these are the default values
+                var reqbody = {
+                    imageBase64: b64Data,
+                    feature: ["ALL"]
+                };
+
+                var imgWrapper = document.getElementById('image_wrapper');
+                var imgOverlay = document.getElementById('img_overlay');
+                imgWrapper.style.backgroundImage = 'url(' + octetData + ')';
+                var img = new Image();
+                img.onload = function() {
+                    imgWrapper.style.width = this.width;
+                    imgWrapper.style.height = this.height;
+                    // setting canvas size in css makes it blurry
+                    imgOverlay.width = this.width;
+                    imgOverlay.height = this.height;
+                }
+                img.src = octetData;
+
+                var xhr = new XMLHttpRequest();
+                xhr.timeout = 10*1000;
+                xhr.addEventListener('timeout', function(e) {
+                    setInstructionText('Request timeout');
+                    resetUploadButton();
+                });
+                xhr.addEventListener('error', function(e) {
+                    setInstructionText('An error has occured sending data to server');
+                    console.log(e);
+                    resetUploadButton();
+                });
+                xhr.addEventListener("load", handleFacePredictResponse);
+                xhr.open('POST', cred.endpoint + '/api/v1/image/faces?accesskey=' + credStr, true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+
+                var uploadButton = document.getElementById('upload_button');
+                uploadButton.innerHTML = 'Sending...';
+                uploadButton.disabled = true;
+                xhr.send(JSON.stringify(reqbody));
+            }
+
+            document.getElementById('image_upload').addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                var form = e.currentTarget;
+                var fileInput = form.children[1];
+
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    sendFacePredictRequest(e.target.result);
+                }
+                reader.readAsDataURL(fileInput.files[0]);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<h1>Welcome to our Computer Vision demo</h1>
+<p>Please <a href="javascript:setCredential()">set your credentials</a> first.</p>
+<ul>
+    <li><a href="labelpredict.html">Image Label</a>: find objects in an image.</li>
+    <li><a href="textpredict.html">Text Label</a>: find text in an image.</li>
+    <li><a href="facepredict.html">Find faces</a>: find human faces in an image.</li>
+</ul>
+<script type="text/javascript">
+    function setCredential() {
+        var userid = prompt('Enter user ID:');
+        if (userid.length == 0) {
+            alert('user ID cannot be empty');
+            return false;
+        }
+
+        var secret = prompt('Enter user secret:');
+        if (secret.length == 0) {
+            alert('user secret cannot be empty');
+            return false;
+        }
+
+        document.cookie = 'apiuserid=' + userid + ';';
+        document.cookie = 'apiusersecret=' + secret + ';';
+        document.cookie = 'apiendpoint=' + 'https://api.ea1.cloud.lizoc.com';
+        return true;
+    }
+</script>
